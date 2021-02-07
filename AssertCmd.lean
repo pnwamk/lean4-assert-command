@@ -1,5 +1,7 @@
 import Lean.Elab.Command
 
+-- TODO improve type checking / inference on `via` functions
+-- TODO improve error messages (i.e., don't mention `beqAndRepr` or `predAndRepr`)
 
 namespace AssertCmd
 
