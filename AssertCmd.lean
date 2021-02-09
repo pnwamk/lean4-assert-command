@@ -41,6 +41,7 @@ private unsafe def elabAssertAux (tk actual expected : Syntax) (pred : Option Sy
     let a ← Term.elabTerm actual none
     let e ← Term.elabTerm expected none
     Term.synthesizeSyntheticMVarsNoPostponing
+    let valType ← withRef expected (do ensureHasType (some (← inferType a)) e)
     let r ← match pred with 
             | none => mkAppM ``beqAndRepr #[a, e]
             | some p => do
@@ -68,6 +69,7 @@ unsafe def elabAssert : CommandElab
 
 
 -- #assert 1 == 1
+-- #assert 1 == '1'
 -- #assert 1 == 2
 -- #assert 1 == 2
 -- #assert 1 == 1 via Nat.beq
