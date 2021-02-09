@@ -1,8 +1,5 @@
 import Lean.Elab.Command
 
--- TODO improve type checking / inference on `via` functions
--- TODO improve error messages (i.e., don't mention `beqAndRepr` or `predAndRepr`)
-
 namespace AssertCmd
 
 open Lean
@@ -21,31 +18,46 @@ private def addAndCompile (value : Expr) (name : Name) : TermElabM Unit := do
   Term.ensureNoUnassignedMVars decl
   Lean.addAndCompile decl
 
+declare_syntax_cat comparator
+syntax " == " : comparator
+syntax " ~= " : comparator
 
-syntax (name := assert) "#assert " term:max " == " term:max : command
-syntax (name := assertVia) "#assert " term:max " == " term:max " via " term:max : command
+syntax (name := assert) "#assert " term:max " == " term : command
+syntax (name := assertVia) "#assert " term:max comparator term " via " term : command
 
 private def beqAndRepr {α} [BEq α] [Repr α] (actual expected : α) : (Bool × String × String) :=
   if actual == expected
   then (true, reprStr actual, reprStr expected)
   else (false, reprStr actual, reprStr expected)
 
-private def predAndRepr {α} [Repr α] (pred : α → α → Bool) (actual expected : α) : (Bool × String × String) :=
+private def predAndRepr {α β} [Repr α] [Repr β] (pred : α → β → Bool) (actual : α) (expected : β) : (Bool × String × String) :=
   if pred actual expected
   then (true, reprStr actual, reprStr expected)
   else (false, reprStr actual, reprStr expected)
 
-private unsafe def elabAssertAux (tk actual expected : Syntax) (pred : Option Syntax) : CommandElabM Unit := do
+private unsafe def elabAssertAux (tk actual expected : Syntax) (isHEq : Bool) (pred : Option Syntax) : CommandElabM Unit := do
   let elabComp (actual expected : Syntax) (rNm : Name) : CommandElabM (Bool × String × String) := runTermElabM (some rNm) fun _ => do
     let env ← getEnv
     let a ← Term.elabTerm actual none
     let e ← Term.elabTerm expected none
     Term.synthesizeSyntheticMVarsNoPostponing
-    let valType ← withRef expected (do ensureHasType (some (← inferType a)) e)
+    let lhsType ← inferType a
     let r ← match pred with 
-            | none => mkAppM ``beqAndRepr #[a, e]
-            | some p => do
-              let p ← Term.elabTerm p none
+            | none => do
+              let _ ← withRef expected (do ensureHasType (some lhsType) e)
+              -- TODO use trySynthInstance for BEq and Repr constraint for lhsType so beqAndRepr does not appear in error messages
+              mkAppM ``beqAndRepr #[a, e]
+            | some predFnStx => do
+              let rhsType ← if isHEq
+                            then inferType e
+                            else do
+                              let _ ← withRef expected (do ensureHasType (some lhsType) e)
+                              pure lhsType
+              -- TODO use trySynthInstance for Repr constraint for lhsType and rhsType so predAndRepr does not appear in error messages
+              let expectedFnType := mkForall Name.anonymous BinderInfo.default lhsType (mkForall Name.anonymous BinderInfo.default rhsType (mkConst `Bool))
+              let p ← Term.elabTerm predFnStx (some expectedFnType)
+              Term.synthesizeSyntheticMVarsNoPostponing
+              let _ ← withRef predFnStx (do ensureHasType (some expectedFnType) p)
               mkAppM ``predAndRepr #[p, a, e]
     try addAndCompile r rNm; evalConst (Bool × String × String) rNm finally setEnv env
   let (res, aStr, eStr) ← elabComp actual expected `_assertion
@@ -62,8 +74,9 @@ private unsafe def elabAssertAux (tk actual expected : Syntax) (pred : Option Sy
 
 @[commandElab assert, commandElab assertVia]
 unsafe def elabAssert : CommandElab
-  | `(#assert%$tk $actual == $expected via $pred) => elabAssertAux tk actual expected (some pred)
-  | `(#assert%$tk $actual == $expected) => elabAssertAux tk actual expected none 
+  | `(#assert%$tk $actual ~= $expected via $pred) => elabAssertAux tk actual expected true (some pred)
+  | `(#assert%$tk $actual == $expected via $pred) => elabAssertAux tk actual expected false (some pred)
+  | `(#assert%$tk $actual == $expected) => elabAssertAux tk actual expected false none
   | _ => throwUnsupportedSyntax
 
 
@@ -71,8 +84,11 @@ unsafe def elabAssert : CommandElab
 -- #assert 1 == 1
 -- #assert 1 == '1'
 -- #assert 1 == 2
--- #assert 1 == 2
 -- #assert 1 == 1 via Nat.beq
--- #assert 1 == 2 via (λ x y => Nat.beq x y)
+-- #assert "ABC" == "abc" via (λ x y => x.map Char.toLower == y)
+-- #assert "1" == 2 via (λ (x : String) (y : Nat) => true)
+-- #assert "1" == (-2) via (λ (x : String) (y : Int) => true)
+-- #assert "1" ~= (-2) via (λ (x : String) (y : Int) => true)
+-- #assert "1" == 2 via (λ (x : String) (y : Int) => true)
 
 end AssertCmd
