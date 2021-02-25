@@ -52,3 +52,6 @@ Mkfile.old
 dkms.conf
 /build
 /build
+
+# Nix files
+flake.lock
