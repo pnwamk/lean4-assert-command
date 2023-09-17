@@ -36,7 +36,7 @@ private def predAndRepr {α β} [Repr α] [Repr β] (pred : α → β → Bool) 
   else (false, reprStr actual, reprStr expected)
 
 private unsafe def elabAssertAux (tk actual expected : Syntax) (isHEq : Bool) (pred : Option Syntax) : CommandElabM Unit := do
-  let elabComp (actual expected : Syntax) (rNm : Name) : CommandElabM (Bool × String × String) := runTermElabM (some rNm) fun _ => do
+  let elabComp (actual expected : Syntax) (rNm : Name) : CommandElabM (Bool × String × String) := runTermElabM fun _ => do
     let env ← getEnv
     let a ← Term.elabTerm actual none
     let e ← Term.elabTerm expected none
@@ -72,7 +72,7 @@ private unsafe def elabAssertAux (tk actual expected : Syntax) (isHEq : Bool) (p
     logErrorAt tk ("  actual: " ++ aStr : String)
     logErrorAt tk ("expected: " ++ eStr : String)
 
-@[commandElab assert, commandElab assertVia]
+@[command_elab assert, command_elab assertVia]
 unsafe def elabAssert : CommandElab
   | `(#assert%$tk $actual ~= $expected via $pred) => elabAssertAux tk actual expected true (some pred)
   | `(#assert%$tk $actual == $expected via $pred) => elabAssertAux tk actual expected false (some pred)
